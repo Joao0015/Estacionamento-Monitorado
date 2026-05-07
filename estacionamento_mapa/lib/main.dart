@@ -1,16 +1,10 @@
-// Importa a biblioteca principal de UI do Flutter
 import 'package:flutter/material.dart';
-
-// Importa a biblioteca de mapa (OpenStreetMap)
 import 'package:flutter_map/flutter_map.dart';
-
-// Biblioteca para trabalhar com coordenadas geográficas (latitude/longitude)
 import 'package:latlong2/latlong.dart';
-
-// Biblioteca para pegar a localização do celular (Certifique-se de adicionar no pubspec.yaml)
 import 'package:geolocator/geolocator.dart';
+import 'package:http/http.dart' as http; // Importante para o ESP32
+import 'dart:async';
 
-// Função principal que inicia o app
 void main() {
   runApp(const MyApp());
 }
@@ -36,24 +30,50 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
-  // Coordenadas centrais do mapa (Inatel)
   final LatLng inatelLocation = const LatLng(-22.2568, -45.7032);
-  
-  // Variável que guarda a localização do usuário (começa vazia)
   LatLng? userLocation;
+  
+  // --- NOVAS VARIÁVEIS PARA O ESP32 ---
+  String _statusVaga2 = "livre"; 
+  Timer? _espTimer;
 
   @override
   void initState() {
     super.initState();
     _checkPermissionAndTrack();
+    
+    // Inicia a verificação do ESP32 a cada 2 segundos
+    _espTimer = Timer.periodic(const Duration(seconds: 2), (timer) {
+      _buscarDadosESP32();
+    });
   }
 
-  // Função para pedir permissão e rastrear o usuário
+  // Função que conversa com o ESP32
+  Future<void> _buscarDadosESP32() async {
+    try {
+      // SUBSTITUA PELO IP QUE APARECE NO SEU ARDUINO IDE
+      final response = await http.get(Uri.parse('http://10.97.14.172/')); 
+      
+      if (response.statusCode == 200) {
+        setState(() {
+          _statusVaga2 = response.body.trim(); 
+        });
+      }
+    } catch (e) {
+      print("Erro ao conectar no ESP32: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _espTimer?.cancel(); // Para o timer ao fechar o app
+    super.dispose();
+  }
+
   Future<void> _checkPermissionAndTrack() async {
     bool serviceEnabled;
     LocationPermission permission;
 
-    // Teste se o serviço de localização está ativo
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) return;
 
@@ -65,11 +85,10 @@ class _MapScreenState extends State<MapScreen> {
     
     if (permission == LocationPermission.deniedForever) return;
 
-    // Se chegou aqui, temos permissão. Vamos escutar a posição:
     Geolocator.getPositionStream(
       locationSettings: const LocationSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 2, // Atualiza a cada 2 metros
+        distanceFilter: 2,
       ),
     ).listen((Position position) {
       setState(() {
@@ -106,7 +125,6 @@ class _MapScreenState extends State<MapScreen> {
               ),
               MarkerLayer(
                 markers: [
-                  // --- MARCADOR DO USUÁRIO (PIN AZUL) ---
                   if (userLocation != null)
                     Marker(
                       point: userLocation!,
@@ -119,27 +137,27 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
 
-                  // --- MARCADORES DAS VAGAS ---
-                  // Marcador 1 (vaga livre)
+                  // --- VAGA MONITORADA PELO BOTÃO ---
                   Marker(
                     point: const LatLng(-22.2571, -45.7030),
                     width: markerSize,
                     height: markerSize,
                     child: Icon(
                       Icons.accessible,
-                      color: Colors.green,
+                      // MUDANÇA AQUI: Cor depende do status do ESP32
+                      color: _statusVaga2 == "ocupada" ? Colors.red : Colors.green,
                       size: iconSize,
                     ),
                   ),
 
-                  // Marcador 2 (vaga ocupada)
+                  // Marcador 2 (Exemplo estático)
                   Marker(
                     point: const LatLng(-22.2572, -45.7031),
                     width: markerSize,
                     height: markerSize,
                     child: Icon(
                       Icons.accessible,
-                      color: Colors.red,
+                      color: _statusVaga2 == "ocupada" ? Colors.red : Colors.green,
                       size: iconSize,
                     ),
                   ),
